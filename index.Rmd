@@ -1,0 +1,427 @@
+---
+title: "EDLD 652 Presentation"
+output:   
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+    theme: yeti
+---
+
+```{r setup, include=FALSE}
+library(rio) 
+library(here) 
+library(dplyr) 
+library(ggplot2) 
+library(ggimage) 
+library(ggtext) 
+library(tidyr)
+library(forcats)
+library(flexdashboard)
+library(shiny)
+```
+
+```{r}
+data <- import(here("data/data.sav"))
+
+word_to_number <- c("Always" = 4, "Often" = 3, "Sometimes" = 2, "Never" = 1)
+column_transform <- seq(44, 72, by = 2)
+
+word2number <- c( "Very important" = 4,  "Moderately important" = 3, "A little important" = 2, "Not at all important" = 1)
+columns2transform <- seq(76, 154, by = 2)
+
+data2 <- data %>% #ORTO
+  mutate_at(vars(column_transform), ~ case_when(
+    . == "Always" ~ word_to_number["Always"],
+    . == "Often" ~ word_to_number["Often"],
+    . == "Sometimes" ~ word_to_number["Sometimes"],
+    . == "Never" ~ word_to_number["Never"],
+    TRUE ~ NA_real_  # if none of the above conditions are met, assign NA
+  )) %>%
+  mutate_at(vars(columns2transform), ~ case_when(
+    . == "Moderately important" ~ word2number["Moderately important"],
+    . == "Very important" ~ word2number["Very important"],
+    . == "A little important" ~ word2number["A little important"],
+    . == "Not at all important" ~ word2number["Not at all important"],
+    TRUE ~ NA_integer_  # Assign NA if none of the conditions are met
+  ))
+
+#removing unnecessary 
+columns2remove <- c(17:25, 32:41, 182:200)
+data2 <- data2[, -columns2remove]
+
+even_columns_to_remove <- seq(26, 138, by = 2)
+data2 <- data2[, -even_columns_to_remove]
+data2 <- data2[, -(106:148)]
+
+data2$ItIsImportantToMeThatFoodIEatIsEasyToPrepare <- as.numeric(data2$ItIsImportantToMeThatFoodIEatIsEasyToPrepare)
+
+country_codes <- c("Australia" = "au", 
+                   "Canada" = "ca", 
+                   "India" = "in", 
+                   "Other (please specify)" = "na", 
+                   "United Kingdom (England, Northern Ireland, Scotland, and Wales)" = "uk", 
+                   "United States" = "us")
+data2 <- data2 %>%
+  mutate(Country_Code = case_when(
+    CountryofResidence %in% names(country_codes) ~ country_codes[as.character(CountryofResidence)],
+    TRUE ~ NA_character_
+  ))
+
+data2 <- data2 %>%
+  mutate(convenience_factor = rowSums(select(., 40, 54, 67, 50, 74), na.rm = TRUE),
+        health_factor = rowSums(select(.,48, 49, 61, 66, 68, 69), na.rm = TRUE),
+        mood_factor = rowSums(select(., 52, 55, 73, 65, 63, 70), na.rm = TRUE),
+        sensory_factor = rowSums(select(., 53, 64, 57, 43), na.rm = TRUE),
+        natural_factor = rowSums(select(., 41, 44, 62), na.rm = TRUE),
+        price_factor = rowSums(select(., 45, 75, 51), na.rm = TRUE),
+        weight_factor = rowSums(select(., 42, 56, 46), na.rm = TRUE),
+        familiar_factor = rowSums(select(., 72, 47, 60), na.rm = TRUE),
+        ethical_factor = rowSums(select(., 59, 71, 58), na.rm = TRUE),
+        ortho_score = rowSums(select(., 25:39), na.rm = TRUE))
+
+EDdata <- data2 %>%
+  group_by(PastEDYesNo) %>%
+  summarize(health_mean = mean(health_factor),
+            convenience_mean = mean(convenience_factor),
+            mood_mean = mean(mood_factor),
+            sensory_mean = mean(sensory_factor),
+            natural_mean = mean(natural_factor),
+            price_mean = mean(price_factor),
+            weight_mean = mean(weight_factor),
+            familiar_mean = mean(familiar_factor),
+            ethical_mean = mean(ethical_factor))
+
+ED_long <- gather(EDdata, key = "Factor", value = "Mean", -PastEDYesNo)
+
+total_means <- ED_long %>%
+  group_by(PastEDYesNo) %>%
+  summarize(total_mean = sum(Mean))
+  
+ED_long <- merge(ED_long, total_means, by = "PastEDYesNo") %>%
+  mutate(Importance_Percent = (Mean / total_mean) * 100)
+
+
+name_mapping <- c("convenience_mean" = "Convenience",
+                  "health_mean" = "Health Value",
+                  "mood_mean" = "Mood",
+                  "sensory_mean" = "Sensory",
+                  "natural_mean" = "Natural",
+                  "price_mean" = "Price",
+                  "weight_mean" = "Weight Concerns",
+                  "familiar_mean" = "Familiar",
+                  "ethical_mean" = "Ethical")
+
+result <- data2 %>% 
+  group_by(HighestEducation, DietaryPattern) %>%
+  summarise(Count =n()) %>%
+  mutate(Percentage = Count/ sum(Count)*100) %>%
+  mutate(HighestEducation = case_when(
+    HighestEducation == "Bachelor degree or above" ~ "Bachelors or Above",
+    HighestEducation == "Below year 12 in Australia, or equivalent (did not go to or finish high school)" ~ "Did not Graduate High School",
+    HighestEducation == "Diploma or similar" ~ "Associates or Similar",
+    HighestEducation == "Year 12 in Australia, or equivalent (finished high school)" ~ "Graduated High School",
+    TRUE ~ as.character(HighestEducation)
+  )) %>%
+  mutate(DietaryPattern = case_when(
+    DietaryPattern == "Omnivore (consume animal foods and drinks as well as plant foods and drinks)" ~ "Omnivore",
+    DietaryPattern == "Vegan or vegetarian (avoid most or all animal products)" ~ "Vegan/Vegetarian",
+    TRUE ~ as.character(DietaryPattern)
+  )) 
+
+result$laborder <- c(75, 10, 85, 35, 75, 4, 75, 10)
+
+order <- c("Did not Graduate High School", "Graduated High School", "Associates or Similar", "Bachelors or Above")
+
+result$HighestEducation <- factor(result$HighestEducation, levels = order)
+
+
+data3 <- data2 %>%
+  mutate(CombinedDietaryPattern = ifelse(CurrentDietaryPatternOmnivore != "", CurrentDietaryPatternOmnivore, CurrentDietaryPatternVeganVegetarian)) %>%
+  select(-c(CurrentDietaryPatternOmnivore, CurrentDietaryPatternVeganVegetarian)) %>%
+  mutate(SimpleDiet = case_when(
+    grepl("Lacto-ovo-vegetarian", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    grepl("Animal-moderate omnivore", CombinedDietaryPattern) ~ "Moderate Omnivore",
+    grepl("Animal-heavy omnivore", CombinedDietaryPattern) ~ "Animal-Heavy Omnivore",
+    grepl("Dietary vegan", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    grepl("Lacto-vegetarian", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    grepl("Plant-heavy omnivore", CombinedDietaryPattern) ~ "Plant-Heavy Omnivore",
+    grepl("Lifestyle and dietary vegan", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    grepl("Pescatarian", CombinedDietaryPattern) ~ "Pescatarian",
+    grepl("Ovo-vegetarian", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    grepl("Flexitarian/semi-vegetarian", CombinedDietaryPattern) ~ "Vegan/Vegetarian",
+    TRUE ~ "Other"
+  ))
+
+country_count <- data3 %>%
+  group_by(CountryofResidence, SimpleDiet) %>%
+  summarize(Count = n())
+
+data_long <- data3 %>%
+  group_by(CountryofResidence, SimpleDiet) %>%
+  summarize(TotalCount = n())
+
+
+data_total <- data_long %>%
+  group_by(CountryofResidence) %>%
+  summarize(Total = sum(TotalCount))
+
+
+data4 <- left_join(data_long, data_total, by = "CountryofResidence")
+
+data4 <- data4 %>%
+  mutate(Percentage = (TotalCount / Total) * 100)
+
+countries <- data2 %>%
+  select(CountryofResidence, CurrentDietaryPatternOmnivore, CurrentDietaryPatternVeganVegetarian)  %>%
+  mutate(CombinedDietaryPattern = ifelse(CurrentDietaryPatternOmnivore != "", CurrentDietaryPatternOmnivore, CurrentDietaryPatternVeganVegetarian)) %>%
+  select(-c(CurrentDietaryPatternOmnivore, CurrentDietaryPatternVeganVegetarian)) %>%
+  mutate(SimplifiedDietaryPattern = case_when(
+    grepl("Lacto-ovo-vegetarian", CombinedDietaryPattern) ~ "Lacto-ovo-vegetarian",
+    grepl("Animal-moderate omnivore", CombinedDietaryPattern) ~ "Animal-moderate omnivore",
+    grepl("Animal-heavy omnivore", CombinedDietaryPattern) ~ "Animal-heavy omnivore",
+    grepl("Dietary vegan", CombinedDietaryPattern) ~ "Dietary vegan",
+    grepl("Lacto-vegetarian", CombinedDietaryPattern) ~ "Lacto-vegetarian",
+    grepl("Plant-heavy omnivore", CombinedDietaryPattern) ~ "Plant-heavy omnivore",
+    grepl("Lifestyle and dietary vegan", CombinedDietaryPattern) ~ "Lifestyle and dietary vegan",
+    grepl("Pescatarian", CombinedDietaryPattern) ~ "Pescatarian",
+    grepl("Ovo-vegetarian", CombinedDietaryPattern) ~ "Ovo-vegetarian",
+    grepl("Flexitarian/semi-vegetarian", CombinedDietaryPattern) ~ "Flexitarian/semi-vegetarian",
+    TRUE ~ "Other"
+  ))
+
+country_count <- countries %>%
+  group_by(CountryofResidence, SimplifiedDietaryPattern) %>%
+  summarize(Count = n())
+
+country_long <- countries %>%
+  group_by(CountryofResidence, SimplifiedDietaryPattern) %>%
+  summarize(TotalCount = n())
+
+
+country_total <- country_long %>%
+  group_by(CountryofResidence) %>%
+  summarize(Total = sum(TotalCount))
+
+
+countries <- left_join(country_long, country_total, by = "CountryofResidence")
+
+countries <- countries %>%
+  mutate(Percentage = (TotalCount / Total) * 100)
+
+```
+# Background Information
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+#### **What is this dashboard?**
+This is my final project for EDLD 652 Data Visualization at the University of Oregon as part of a [Data Science Specialization](https://education.uoregon.edu/epol/specialization-educational-data-science). For this project, I created visualizations depicting data focused on food choices and eating habits.
+
+#### **Where are these data from?**
+These data came from the [Vegans and vegetarians have higher othorexic traits than omnivores and choose food for reasons including ethics and weight control](https://figshare.com/articles/dataset/Untitled_Item/21006490), which is an open-source, de-identified data set available for download. 
+
+#### **Who made this directory?**
+I did! I also had emotional support from my dog. Making data visualizations in RStudio is painful sometimes, so she really helped keeping morale up. 
+![Coauthor Image](graphics/coauthor.png){width=350px}
+
+Image: Me (Leah Peterson - the human) & Casserole Jean (the dog)
+
+
+Column {.tabset data-width=650}
+-----------------------------------------------------------------------
+
+#### **My Variables**
+
+
+##### *Food Choice Questionnaire (FCQ)*
+This measure is evaluating the at the individual level what factors one uses to make food choices. Steptoe et al. (1995) developed the 36 item measure to include nine factors: health, mood, convenience, sensory appeal, natural content, price, weight control, familiarity, and ethical concerns. This measure allows us to systematically compare the importance of health related and non-health related food choice factors. 
+
+##### *Eating Disorder (ED) History*
+Eating disorders, such as anorexia nervosa and bulimia nervosa, have been linked to differences in diet types (Bardone-Cone et al., 2012) and individual food choices (Barthels et al., 2020). 
+One eating disorder, orthorexia nervosa (ON), has recently been getting an increase of attention in the research community. [Orthorexia nervosa](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6370446/) is an unhealthy obsession with healthy eating. Those who are diagnosed with ON are obsessed with healthy eating in such a way that disrupts their daily life and involves restrictive actions regarding food.
+
+##### *Highest Level of Education*
+Higher educational attainment has been correlated with a healthier diet (Azizi Fard et al., 2021). In these data, there are four levels of education collected:
+
+1. Did not graduate high school
+
+2. Graduated high school
+
+3. Associates degree or equivalent
+
+4. Bachelors degree or higher
+
+##### *Types of Dietary Practices* 
+Dietary practices are defined by a participant’s preference in food consumption or behaviors of dietary habits. This sample has the following diets:
+
+1. Pescatarian: Individuals who do not eat meat, but do eat seafood.
+
+2. Omnivore: Individuals who eat meat, seafood, and plant-based foods.
+
+3. Vegetarian: Individuals who do not eat meat.
+
+4. Vegan: Individuals who do not eat meat or any animal derived food, such as eggs or dairy.
+
+In the following visualizations, vegan and vegetarian dietary practices will be combined and omnivore diets will be split into three categories: plant-heavy omnivore, moderate omnivore (consumes an equal amount of plant based food and animal based foods), and animal-heavy omnivore.
+
+# Visualization 1
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Final Plot
+```{r}
+viz1 <- ggplot(ED_long, aes(x = Factor, y = Mean, size = Importance_Percent, color = PastEDYesNo, 
+                    alpha = ifelse(PastEDYesNo == "No", 0.2, 1))) +
+  geom_point(position =  position_dodge(width = 0.5), alpha = 0.7) + 
+  scale_size_continuous(range = c(2, 10)) +
+  labs(title = "Health Factors Drive Food Choices for People With 
+and Without an Eating Disorder History",
+       x = "Food Choice Motives",
+       y = "FCQ Score",
+       color = "Past ED Diagnosis",
+       caption = "
+       
+Eating Disorder (ED)
+Circle size represents the porportion of importance for each group ") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0)) +
+  scale_color_manual(values = c("No" = "plum", "Yes" = "darkred")) +
+  scale_x_discrete(labels = name_mapping) +
+  scale_alpha_identity() +
+  ylim(0,20) +
+  guides(size = "none") 
+
+viz1
+```
+
+Column {.tabset data-width=350}
+-----------------------------------------------------------------------
+
+
+### Version 1
+```{r}
+ggplot(ED_long, aes(x = Factor, y = Mean, size = Mean, color = PastEDYesNo, 
+                    alpha = ifelse(PastEDYesNo == "No", 0.2, 1))) +
+  geom_point(position = 'dodge', alpha = 0.7) + 
+  scale_size_continuous(range = c(2, 10)) +
+  labs(title = "Importance of Food Choice Motives Between Past ED and No Past ED Groups",
+       x = "Food Choice Motives",
+       y = "Group Mean Score on FCQ",
+       color = "Past Eating Disorder Diagnosis",
+       caption = "Eating Disorder (ED)
+                  Maximum score of the Food Choice Questionaire (FCQ) is 24") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top",
+        plot.title = element_text(hjust = 0.5)) +
+  scale_color_manual(values = c("No" = "blue", "Yes" = "red")) +
+  scale_x_discrete(labels = name_mapping) +
+  scale_alpha_identity() +
+  ylim(0,20) +
+  guides(size = "none") 
+```
+
+# Visualization 2
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Final Plot
+```{r}
+viz2 <- ggplot(result,aes(x = HighestEducation, y = Percentage, fill = DietaryPattern)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(x = " ",
+       y = "50%",
+       title = "People Who Did Not Gradute High School
+       are Less Likely to Consume Meat",
+       fill = " ") +
+  geom_text(aes(x = HighestEducation, y = laborder, label = paste0(round(Percentage, 2), "%")), size = 2, color = "black") +
+  theme_minimal() +
+  theme(
+        legend.position = "top",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(size = 0)) + 
+  geom_hline(yintercept = 50, linetype = "dashed", color = "black") +
+  scale_fill_brewer(palette = "PRGn") + 
+  scale_y_continuous(labels =function(x)paste0(x, "%"), expand =c(0, 0),limits =c(0, 100)) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  coord_flip()
+
+viz2
+```
+
+Column {.tabset data-width=350}
+-----------------------------------------------------------------------
+
+### Version 1
+```{r}
+ggplot(result,aes(x = HighestEducation, y = Percentage, fill = DietaryPattern)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  labs(x = "Education Level",
+       y = " ",
+       title = "People who did not gradute high school are more likely to not eat meat",
+       fill = "Diet Type") +
+  theme_minimal() +
+  theme(plot.title =element_text(hjust = 0.5),
+        legend.position = "top",
+        panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(size = 8)) + 
+  scale_fill_brewer(palette = "PRGn") + 
+  scale_y_continuous(labels =function(x)paste0(x, "%"), expand =c(0, 0),limits =c(0, 100))
+```
+
+# Visualization 3
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Final Plot
+```{r}
+data4 <- data4 %>% 
+  filter(CountryofResidence == "United States") %>%
+  mutate(SimpleDiet = factor(SimpleDiet, levels = SimpleDiet[order(Percentage, decreasing = TRUE)]))
+
+
+data4$images <- c(here("graphics/Meat.png"), here("graphics/Moderate.png"), here("graphics/Fish.png"), here("graphics/BigVeg.png"), here("graphics/Veggie.png"))
+
+
+ggplot(data = data4, aes(x = Percentage, y = SimpleDiet, image = images)) +
+  geom_segment(aes(xend = 0, yend = SimpleDiet)) +
+  geom_point(color = "black", size = 3) +
+  theme_minimal() +
+  geom_image(size = 0.09) +
+  labs(y = " ",
+      x = " ",
+      title = "Over Half of Americans are Moderate Omnivores
+      ") +
+  scale_x_continuous(labels =function(x)paste0(x, "%"), expand =c(0, 0),limits =c(-2, 65)) +
+  geom_text(aes(x = Percentage, y = SimpleDiet, label = paste0(round(Percentage, 2), "%")), size = 3, color = "black", hjust = -.55) +
+  theme(panel.grid.major.y = element_blank())
+```
+
+Column {.tabset data-width=350}
+-----------------------------------------------------------------------
+
+### Version 1
+```{r}
+countries %>% 
+  filter(CountryofResidence == "United States") %>%
+  ggplot(aes(x = "", y = Percentage, fill = SimplifiedDietaryPattern)) +
+  geom_bar(position = "dodge", stat = "identity") +  # Create bars for each dietary pattern
+  labs(title = "Different Diet Types in the United States",
+       x = NULL,  # Remove x-axis label
+       y = "Percentage of People",
+       fill = NULL) +  # Remove legend title
+  theme_minimal() +
+  scale_fill_viridis_d() +
+  theme(legend.position = "bottom",  # Move legend to the bottom
+        legend.box = "horizontal",
+        legend.text = element_text(size = 6)) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"), expand = c(0, 0), limits = c(0, 65)) +
+  coord_flip()
+```
+
