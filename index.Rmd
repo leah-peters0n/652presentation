@@ -5,7 +5,8 @@ output:
     orientation: columns
     vertical_layout: fill
     source_code: embed
-    theme: yeti
+    theme: paper
+
 ---
 
 ```{r setup, include=FALSE}
